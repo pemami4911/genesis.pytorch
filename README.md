@@ -1,6 +1,6 @@
 # genesis.pytorch
 
-A PyTorch implementation of [GENESIS: Generative Scene Inference and Sampling](https://arxiv.org/abs/1907.13052). The official implementation by the authors is available [here](https://github.com/applied-ai-lab/genesis).
+A PyTorch implementation of [GENESIS: Generative Scene Inference and Sampling with Object-Centric Latent Representations](https://arxiv.org/abs/1907.13052). The official implementation by the authors is available [here](https://github.com/applied-ai-lab/genesis).
 
 ## Examples
 
@@ -10,7 +10,7 @@ A PyTorch implementation of [GENESIS: Generative Scene Inference and Sampling](h
 
 ## Data
 
-I used the GQN rooms-ring-camera dataset downloaded from this [Deepmind repo](https://github.com/deepmind/gqn-datasets). You can download the train/test split of 1M/1K I used as an HdF5 file (49 GB) from [Dropbox](https://www.dropbox.com/s/8cknxnh9aso8zk4/images.hdf5?dl=0).
+I used the GQN rooms-ring-camera dataset downloaded from this [Deepmind repo](https://github.com/deepmind/gqn-datasets). You can download the train/test split of 1M/1K I used as an HdF5 file (45 GB) from [Dropbox](https://www.dropbox.com/s/8cknxnh9aso8zk4/images.hdf5?dl=0).
 
 ## Installation
 
