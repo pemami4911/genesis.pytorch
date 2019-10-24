@@ -10,7 +10,7 @@ A PyTorch implementation of [GENESIS: Generative Scene Inference and Sampling wi
 
 ## Data
 
-I used the GQN rooms-ring-camera dataset downloaded from this [Deepmind repo](https://github.com/deepmind/gqn-datasets). You can download the train/test split of 1M/1K I used as an HdF5 file (45 GB) from [Dropbox](https://www.dropbox.com/s/8cknxnh9aso8zk4/images.hdf5?dl=0).
+I used the GQN rooms-ring-camera dataset downloaded from this [Deepmind repo](https://github.com/deepmind/gqn-datasets). You can download the train/test split of 1M/1K I used as an HdF5 file (45 GB) from [Dropbox](https://www.dropbox.com/s/8cknxnh9aso8zk4/images.hdf5?dl=0). Download the file and place it in a folder so that the full path is `YOUR_DATA_PATH/gqn-dataset/rooms_ring_camera/images.hdf5`.
 
 ## Installation
 
