@@ -114,7 +114,7 @@ class AutoregressiveMaskEncoder(nn.Module):
             GatedConv2dBN(64, 64, 2, 2),
             GatedConv2dBN(64, 64, 1, 2),
             Flatten(),
-            nn.Linear(16384, self.zm_size*2)
+            nn.Linear( (self.input_size[1]//4)*(self.input_size[1]//4)*64, self.zm_size*2)
         )
         self.lstm = nn.LSTM(self.zm_size*2, self.zm_size*2, batch_first=True)
         self.h, self.c = (torch.zeros(1, self.zm_size*2).to('cuda'),
@@ -167,7 +167,7 @@ class MONetComponentEncoder(nn.Module):
             nn.Conv2d(64, 64, 3, stride=2, padding=1),
             nn.ELU(True),
             Flatten(),
-            nn.Linear(1024, 256),
+            nn.Linear((self.input_size[1]//16)*(self.input_size[1]//16)*64, 256),
             nn.ELU(True),
         )
 
@@ -198,7 +198,7 @@ class MaskDecoder(nn.Module):
         self.K = K
 
         self.pi_zm_logits = nn.Sequential(
-            nn.Linear(self.zm_size, 16384),
+            nn.Linear(self.zm_size, 64*(input_size[1]//4)*(input_size[1]//4)),
             Reshape((-1, 64, self.input_size[1] // 4, self.input_size[2] // 4)),
             GatedConvTranspose2dBN(64, 64, 1, 2),
             GatedConvTranspose2dBN(64, 32, 2, 2, output_padding=1),

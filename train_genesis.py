@@ -5,8 +5,10 @@ import torchvision
 
 import numpy as np
 from sacred import Experiment
-from datasets import ds
-from datasets import StaticHdF5Dataset
+#from datasets import ds
+#from datasets import StaticHdF5Dataset
+from datasets_clevr import ds
+from datasets_clevr import StaticHdF5Dataset
 from model import net
 from model import GENESIS
 from loss import genesis_loss
@@ -14,6 +16,10 @@ from tqdm import tqdm
 from pathlib import Path
 import shutil
 from utils import GECO
+
+import numpy as np
+from collections import deque
+import time
 
 ex = Experiment('GENESIS', ingredients=[ds, net])
 
@@ -138,18 +144,25 @@ def run(training, seed):
         genesis, genesis_opt, geco_ema, step = \
                 restore_from_checkpoint(training, Path(training['checkpoint_dir'], training['checkpoint']))
         geco_ema.C = reconstruction_target
+    
+    forward_queue = deque(maxlen=10000)
+    backward_queue = deque(maxlen=10000)
+
     while step <= training['iters']:
         for batch in tqdm(tr_dataloader):
             
-            batch = batch.to('cuda')
+            batch = batch['imgs'].to('cuda')
             
+            start = time.time()
             out_dict = genesis_loss(batch, genesis, geco_ema, reconstruction_target)
+            forward_queue.append(time.time() - start)
 
             # descend the geco gradient
             genesis_opt.zero_grad()
-
-            (out_dict['loss']).backward()
             
+            start = time.time()
+            (out_dict['loss']).backward()
+            backward_queue.append(time.time()-start)
             #for param in genesis.parameters():
             #    if param.grad is not None:
             #        if torch.isnan(param.grad).any() or param.grad.gt(1e6).any():
@@ -179,6 +192,9 @@ def run(training, seed):
                 writer.add_scalar('train/geco_C_ema', geco_ema.C_ema.data.cpu().numpy(), step)
                 writer.add_scalar('train/reconstruction_target', reconstruction_target, step)
                 visualize_slots(writer, batch, out_dict['model_outs'], step)
+                
+                print('forward time (ms) : {}'.format(np.mean(forward_queue) * 1000.))
+                print('backward time (ms): {}'.format(np.mean(backward_queue) * 1000.))
 
             if step > 0 and step % training['checkpoint_freq'] == 0:
                 prefix = training['run_suffix']
