@@ -192,7 +192,7 @@ def run(training, seed, _run):
     while step <= max_iters:
         tr_sampler.set_epoch(epoch_idx)
 
-        for batch in tqdm(tr_dataloader):
+        for batch in tr_dataloader:
             
             batch = batch['imgs'].to(local_rank)
             
