@@ -15,7 +15,6 @@ def cfg():
     h5_path = '' # dataset name
     masks = False
     preprocess_style = 'basic'
-    normalization = '-1,1' 
 
 
 class StaticHdF5Dataset(torch.utils.data.Dataset):
@@ -24,13 +23,12 @@ class StaticHdF5Dataset(torch.utils.data.Dataset):
     """
 
     @ds.capture
-    def __init__(self, data_path, h5_path, masks, preprocess_style, normalization, d_set='train'):
+    def __init__(self, data_path, h5_path, masks, preprocess_style, d_set='train'):
         super(StaticHdF5Dataset, self).__init__()
         self.h5_path = str(Path(data_path, h5_path))
         self.d_set = d_set.lower()
         self.masks = masks
         self.preprocess_style = preprocess_style
-        self.normalization = normalization
 
 
     def preprocess(self, img):
@@ -44,13 +42,12 @@ class StaticHdF5Dataset(torch.utils.data.Dataset):
         elif self.preprocess_style == 'clevr-small':
             # square center crop of 192 x 192
             PIL_img = PIL_img.crop((64,29,256,221))
-            PIL_img = PIL_img.resize((64,64))
+            PIL_img = PIL_img.resize((96,96))
 
 
         img = np.transpose(np.array(PIL_img), (2,0,1))
         img = img / 255.  # to 0-1
-        if self.normalization == '-1,1':
-            img = (img * 2) - 1  # to [-1,1]
+
         
         return img
 

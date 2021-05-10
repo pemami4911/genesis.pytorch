@@ -1,0 +1,35 @@
+{
+  "Net": {
+    "K": 7,
+    "input_size": [
+      3,
+      96, 
+      96 
+    ]
+  },
+  "dataset": {
+    "data_path": "",
+    "h5_path": "clevr6_with_masks_train.h5",
+    "masks": false,
+    "preprocess_style": "clevr-small"
+  },
+  "seed": 1,
+  "training": {
+    "batch_size": 32,
+    "data_type": "image",
+    "kl_beta": 0.5,
+    "geco_beta_stepsize": 1e-06,
+    "geco_ema_alpha": 0.99,
+    "geco_reconstruction_target": -62000,
+    "checkpoint_freq": 25000,
+    "iters": 300000,
+    "load_from_checkpoint": false,
+    "lr": 0.0001,
+    "clip_grad_norm": true,
+    "num_workers": 4,
+    "run_suffix": "",
+    "tensorboard_delete_prev": false,
+    "tensorboard_freq": 100,
+    "out_dir": "/blue/ranka/pemami/neurips2021/experiments"
+  }
+}

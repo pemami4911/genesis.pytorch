@@ -1,18 +1,16 @@
 import torch
 import torch.nn as nn
 import math
-from torch.autograd import Variable
-from layers import GatedConv2dBN, GatedConvTranspose2dBN
-from layers import Flatten, Reshape
+from lib.layers import GatedConv2dBN, GatedConvTranspose2dBN
+from lib.layers import Flatten, Reshape
 from sacred import Ingredient
-from utils import init_weights
+from lib.utils import init_weights, mvn
+from lib.geco import GECO
+from lib.loss import image_batch_gmm_log_prob
+
 import numpy as np
 
 net = Ingredient('Net')
-
-def mvn(loc, scale):
-    return torch.distributions.independent.Independent(
-            torch.distributions.normal.Normal(loc, torch.exp(scale)), 1)
 
 @net.config
 def cfg():
@@ -22,6 +20,7 @@ def cfg():
     K = 7
     background_log_scale = math.log(0.09)
     foreground_log_scale = math.log(0.11)
+    geco_warm_start = 1000
 
 class AutoregressivePrior(nn.Module):
     """
@@ -36,10 +35,10 @@ class AutoregressivePrior(nn.Module):
         self.K = K
         self.batch_size = batch_size
 
-        self.zm_1 = nn.Parameter(torch.zeros(1, 256)).to('cuda')
+        self.zm_1 = nn.Parameter(torch.zeros(1, 256))
         self.lstm = nn.LSTM(256, 256)
-        self.h, self.c = (torch.zeros(1, 1, 256).to('cuda'),
-                torch.zeros(1, 1, 256).to('cuda'))
+        self.h, self.c = (torch.zeros(1, 1, 256),
+                torch.zeros(1, 1, 256))
         self.p_zm_loc = nn.Linear(256, self.zm_size)
         self.p_zm_scale = nn.Linear(256, self.zm_size)
 
@@ -117,8 +116,8 @@ class AutoregressiveMaskEncoder(nn.Module):
             nn.Linear( (self.input_size[1]//4)*(self.input_size[1]//4)*64, self.zm_size*2)
         )
         self.lstm = nn.LSTM(self.zm_size*2, self.zm_size*2, batch_first=True)
-        self.h, self.c = (torch.zeros(1, self.zm_size*2).to('cuda'),
-                torch.zeros(1, self.zm_size*2).to('cuda'))
+        self.h, self.c = (torch.zeros(1, self.zm_size*2),
+                torch.zeros(1, self.zm_size*2))
         self.q_zm_loc = nn.Linear(self.zm_size*2, self.zm_size)
         self.q_zm_scale = nn.Linear(self.zm_size*2, self.zm_size)
 
@@ -277,7 +276,7 @@ class GENESIS(nn.Module):
     Based on https://github.com/riannevdberg/sylvester-flows/blob/master/models/VAE.py
     """
     @net.capture
-    def __init__(self, zm_size, zc_size, input_size, K, batch_size, background_log_scale, foreground_log_scale):
+    def __init__(self, zm_size, zc_size, input_size, K, batch_size, geco_warm_start, background_log_scale, foreground_log_scale):
         super(GENESIS, self).__init__()
 
         self.zm_size = zm_size
@@ -285,7 +284,7 @@ class GENESIS(nn.Module):
         self.input_size = input_size
         self.K = K
         self.gmm_log_scale = torch.cat([torch.FloatTensor([background_log_scale]), foreground_log_scale * torch.ones(K-1)], 0)
-        self.gmm_log_scale = self.gmm_log_scale.view(K, 1, 1, 1, 1).to('cuda')
+        self.gmm_log_scale = self.gmm_log_scale.view(K, 1, 1, 1, 1)
 
         self.prior_zm = AutoregressivePrior(batch_size=batch_size)
         self.prior_zc = ContentPrior(batch_size=batch_size)
@@ -301,8 +300,12 @@ class GENESIS(nn.Module):
         init_weights(self.mask_decoder, 'truncated_normal')
         init_weights(self.image_decoder, 'truncated_normal')
 
-        self.init_scope = torch.zeros(batch_size, 1, input_size[1], input_size[2]).to('cuda')
+        self.init_scope = torch.zeros(batch_size, 1, input_size[1], input_size[2])
         self.eps = torch.finfo(torch.float).eps
+
+        self.geco_warm_start = geco_warm_start
+        self.geco_C_ema = nn.Parameter(torch.tensor(0.), requires_grad=False)
+        self.geco_beta = nn.Parameter(torch.tensor(0.55), requires_grad=False)
 
     def sample_prior(self):
         """
@@ -337,10 +340,71 @@ class GENESIS(nn.Module):
         log_p_k += [(1. - sum_p_k).clamp(min=self.eps).log()]
         return torch.stack(log_p_k) # [K, batch_size, 1, H, W]
 
-    def forward(self, x):
+
+    def genesis_loss(self, imgs, preds, geco, step, kl_beta):
+        """
+        GECO constrained opt ELBO
+
+        data_batch: images [N, C, H, W]
+        vae: computes variational posterior
+        returns loss, to be optimized and the elbo
+        """
+
+        batch_size = imgs.shape[0]
+
+        log_pi = preds['pis']
+        x_loc = preds['x_loc']
+        x_log_scale = preds['x_log_scale']
+
+        ## Likelihood term
+        # output is [batch_size]
+        log_prob = image_batch_gmm_log_prob(imgs, log_pi, x_loc, x_log_scale)
+
+        # KL terms
+        # MVNs same shapes as priors
+        q_zm = preds['q_zm']
+        q_zc = preds['q_zc']
+        
+        prior_zm, prior_zc = self.sample_prior()
+
+        kl_q_zm = torch.distributions.kl.kl_divergence(q_zm, prior_zm)
+        kl_q_zc = torch.distributions.kl.kl_divergence(q_zc, prior_zc)
+    
+        # sum over K for the KL divergences, result is [batch_size]
+        kl_q_zm = kl_q_zm.view(-1, batch_size).sum(0)
+        kl_q_zc = kl_q_zc.view(-1, batch_size).sum(0)
+
+        # GECO doesn't optimize this
+        # [batch_size]
+        train_elbo = log_prob - kl_beta * (kl_q_zm + kl_q_zc)
+
+        nll = -log_prob
+        if self.geco_warm_start > step or geco is None:
+            loss = torch.mean(nll + kl_beta * (kl_q_zm + kl_q_zc))
+        else:
+            loss = kl_beta * torch.mean((kl_q_zm + kl_q_zc)) - geco.constraint(self.geco_C_ema, self.geco_beta, torch.mean(nll))
+                
+
+        return {
+            'loss': loss,
+            'elbo': torch.mean(train_elbo),
+            'KL': torch.mean(kl_q_zm + kl_q_zc),
+            'reconstruction': torch.mean(log_prob),
+            'model_outs': preds
+        }
+
+
+    def forward(self, x, geco, global_step, kl_beta):
         """
         Evaluates the model as a whole, encodes and decodes.
         """
+        self.gmm_log_scale=self.gmm_log_scale.to(x.device)
+        self.init_scope=self.init_scope.to(x.device)
+        self.prior_zm.zm_1=self.prior_zm.zm_1.to(x.device)
+        self.prior_zm.h=self.prior_zm.h.to(x.device)
+        self.prior_zm.c=self.prior_zm.c.to(x.device)
+        self.autoregressive_mask_encoder.c=self.autoregressive_mask_encoder.c.to(x.device)
+        self.autoregressive_mask_encoder.h=self.autoregressive_mask_encoder.h.to(x.device)
 
         # mean and variance of zm
         q_zm = self.autoregressive_mask_encoder(x)
@@ -356,6 +420,7 @@ class GENESIS(nn.Module):
 
         # [batch_size * K, C, H, W]
         x_loc = self.image_decoder(zc)
+        x_loc = torch.sigmoid(x_loc)  # map values to (0,1)
         x_loc = x_loc.view(self.K, -1, self.input_size[0], self.input_size[1], self.input_size[2])
 
         # [K, batch_size, 1, H, W]
@@ -365,7 +430,7 @@ class GENESIS(nn.Module):
             print('Invalid value encountered during training')
             import pdb; pdb.set_trace()
 
-        return {
+        preds = {
             'q_zm': q_zm,
             'q_zc': q_zc,
             'mask_logprobs': mask_logprobs,
@@ -376,3 +441,5 @@ class GENESIS(nn.Module):
             'zc': zc
         }
 
+        out_dict = self.genesis_loss(x, preds, geco, global_step, kl_beta)
+        return out_dict
