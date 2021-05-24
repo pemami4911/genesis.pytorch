@@ -5,7 +5,9 @@
       3,
       64, 
       64 
-    ]
+    ],
+    "background_log_scale": -0.3566749,
+    "foreground_log_scale": -0.3566749
   },
   "sequential_dataset": {
     "data_path": "",
@@ -22,7 +24,7 @@
     "kl_beta": 0.5,
     "geco_beta_stepsize": 1e-06,
     "geco_ema_alpha": 0.99,
-    "geco_reconstruction_target": -28000,
+    "geco_reconstruction_target": -4500,
     "checkpoint_freq": 25000,
     "iters": 300000,
     "load_from_checkpoint": false,

@@ -132,7 +132,10 @@ def run(training, seed, _run):
     torch.backends.cudnn.benchmark=False
     # Auto-set by sacred 
     #np.random.seed(seed)
-        
+    
+    for d in range(torch.cuda.device_count()):
+        print(torch.cuda.get_device_name(d))
+
     os.environ['MASTER_ADDR'] = '127.0.0.1'
     os.environ['MASTER_PORT'] = str(training['DDP_port'])
     #num_gpus = torch.cuda.device_count()
